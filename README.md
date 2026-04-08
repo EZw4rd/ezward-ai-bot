@@ -1,55 +1,47 @@
 # Ezward AI Telegram Bot
 
-AI assistant hỗ trợ công việc AIQuinta/Anduin, dịch thuật, tóm tắt tài liệu. Hỗ trợ **2 AI providers**: Groq (nhanh) + Google Gemini (mạnh).
+Simple Telegram bot powered by Groq API (Llama 3.1 70B).
+
+## Features
+- 💬 Chat with AI
+- 🌐 Translate EN ↔ VN
+- 📄 Summarize documents
+- 💾 Chat history per user (last 10 messages)
 
 ## Setup
 
-### 1. Lấy API Keys
+### 1. Get API Keys
 
-#### Groq API Key
-- Vào https://console.groq.com → Sign in
-- Tạo API key → Copy
+**Telegram Bot Token:**
+- Open Telegram → Search @BotFather
+- `/newbot` → name your bot → copy token
 
-#### Google AI Studio API Key
-- Vào https://aistudio.google.com → Sign in bằng Google
-- Bấm **Get API Key** → **Create API Key**
-- Copy key
+**Groq API Key:**
+- Visit https://console.groq.com
+- Sign in → Create API key → Copy
 
-### 2. Environment Variables (set trên Railway)
-```
-TELEGRAM_TOKEN=your_telegram_bot_token
-GROQ_API_KEY=your_groq_api_key
-GOOGLE_API_KEY=your_google_ai_studio_key
-```
+### 2. Deploy on Railway
 
-### 3. Deploy Railway
-
-1. Push code lên GitHub
-2. Vào railway.app → New Project → Deploy from GitHub
-3. Set 3 environment variables ở trên
-4. Done!
+1. Push code to GitHub
+2. railway.app → New Project → Deploy from GitHub
+3. Set env variables:
+   - `TELEGRAM_TOKEN` = your bot token
+   - `GROQ_API_KEY` = your Groq key
+4. Done! Bot runs 24/7
 
 ## Commands
+- `/start` - Welcome
+- `/translate [text]` - Translate
+- `/summarize [text]` - Summarize
+- `/clear` - Clear chat history
+- Or just chat normally
 
-- `/start` - Chào mừng + hiển thị AI provider đang dùng
-- `/use_groq` - Chuyển sang **Groq Llama 3.3 70B** (⚡ nhanh nhất)
-- `/use_gemini` - Chuyển sang **Google Gemini 2.5 Flash** (🧠 mạnh nhất)
-- `/translate [text]` - Dịch Anh-Việt
-- `/summarize [text]` - Tóm tắt văn bản
-- `/clear` - Xóa lịch sử chat
+## Model
+- **Model**: Llama 3.1 70B (Groq)
+- **Speed**: Ultra-fast (sub-second responses)
+- **Cost**: Free tier generous
 
-## So sánh 2 AI Provider
-
-| Tiêu chí | Groq | Gemini |
-|---------|------|--------|
-| **Tốc độ** | ⚡⚡⚡ Cực nhanh | ⚡⚡ Nhanh |
-| **Chính xác** | 🎯 Tốt | 🎯🎯🎯 Xuất sắc |
-| **Context** | 32K token | 1M token |
-| **Use case** | Chat realtime, dịch thuật | Dài hạn, phân tích phức tạp |
-
-## Default Behavior
-- Bot mặc định dùng **Groq** (nhanh)
-- Bạn có thể switch sang Gemini bất kỳ lúc nào với `/use_gemini`
-
-## Lịch sử chat
-Bot lưu tối đa 20 tin nhắn gần nhất per user, giúp context liên tục.
+## Notes
+- Bot stores last 10 messages per user
+- Max response: 1024 tokens
+- Telegram limit: 4096 chars per message

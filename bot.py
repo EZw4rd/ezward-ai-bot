@@ -1,130 +1,192 @@
-import os
-import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from groq import Groq
+#!/usr/bin/env python3
+"""
+Ezward AI Telegram Bot
+- Groq API for fast LLM responses
+- Simple polling mode
+- No fancy features, just works
+"""
 
-# Logging
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+import os
+import sys
+import logging
+from typing import Optional
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-# Clients
-groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+try:
+    from telegram import Update
+    from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+    from groq import Groq
+except ImportError as e:
+    logger.error(f"Import error: {e}")
+    sys.exit(1)
 
-SYSTEM_PROMPT = """Bạn là một AI assistant chuyên nghiệp hỗ trợ công việc cho Ezward - người làm việc tại AIQuinta và Anduin Transactions.
+# ============================================================================
+# CONFIG
+# ============================================================================
 
-AIQuinta: công ty AI tập trung vào manufacturing sector, có 2 sản phẩm là AIQ và DxF.
-Anduin Transactions: nền tảng B2B fintech cho private markets / LP management.
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-Nhiệm vụ chính của bạn:
-1. Hỗ trợ công việc: soạn thảo, brainstorm, phân tích cho AIQuinta và Anduin
-2. Dịch thuật Anh-Việt và Việt-Anh chính xác, tự nhiên
-3. Tóm tắt văn bản, tài liệu một cách súc tích
+if not TELEGRAM_TOKEN:
+    logger.error("TELEGRAM_TOKEN not set")
+    sys.exit(1)
+if not GROQ_API_KEY:
+    logger.error("GROQ_API_KEY not set")
+    sys.exit(1)
 
-Phong cách: chuyên nghiệp nhưng thân thiện, trả lời bằng ngôn ngữ người dùng dùng (Việt hoặc Anh).
-Nếu người dùng paste văn bản dài → tự động tóm tắt hoặc hỏi họ muốn làm gì với đoạn văn đó."""
+logger.info("Environment variables loaded")
 
-# Lưu lịch sử chat theo user
-conversation_history = {}
+# Initialize Groq client (minimal config, no proxies)
+try:
+    groq_client = Groq(api_key=GROQ_API_KEY)
+    logger.info("Groq client initialized")
+except Exception as e:
+    logger.error(f"Groq init failed: {e}")
+    sys.exit(1)
 
-def get_history(user_id):
-    if user_id not in conversation_history:
-        conversation_history[user_id] = []
-    return conversation_history[user_id]
+# ============================================================================
+# SYSTEM PROMPT
+# ============================================================================
 
-def add_message(user_id, role, content):
-    history = get_history(user_id)
+SYSTEM_PROMPT = """You are a helpful AI assistant for Ezward.
+
+You work with:
+- AIQuinta: AI company focused on manufacturing (products: AIQ, DxF)
+- Anduin Transactions: B2B fintech platform for private markets
+
+Your tasks:
+1. Help with work-related tasks
+2. Translate English ↔ Vietnamese
+3. Summarize documents
+
+Always respond in the language the user uses (English or Vietnamese).
+Be professional but friendly."""
+
+# ============================================================================
+# IN-MEMORY STORAGE
+# ============================================================================
+
+user_conversations = {}
+
+def get_user_history(user_id: int) -> list:
+    if user_id not in user_conversations:
+        user_conversations[user_id] = []
+    return user_conversations[user_id]
+
+def add_to_history(user_id: int, role: str, content: str):
+    history = get_user_history(user_id)
     history.append({"role": role, "content": content})
-    # Giữ tối đa 20 tin nhắn gần nhất
-    if len(history) > 20:
-        conversation_history[user_id] = history[-20:]
+    if len(history) > 10:
+        user_conversations[user_id] = history[-10:]
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Chào Ezward! Mình là AI assistant của bạn.\n\n"
-        "🤖 Đang dùng: **Groq Llama 3.3 70B** (nhanh nhất)\n\n"
-        "Mình có thể giúp:\n"
-        "• 💼 Công việc AIQuinta / Anduin\n"
-        "• 🌐 Dịch thuật Anh ↔ Việt\n"
-        "• 📄 Tóm tắt văn bản / tài liệu\n\n"
-        "Commands:\n"
-        "/translate [text] — Dịch văn bản\n"
-        "/summarize [text] — Tóm tắt\n"
-        "/clear — Xóa lịch sử chat\n\n"
-        "Hoặc chat bình thường là được! 💬"
-    )
+# ============================================================================
+# GROQ CALLS
+# ============================================================================
 
-async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    conversation_history[user_id] = []
-    await update.message.reply_text("✅ Đã xóa lịch sử chat!")
-
-async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = " ".join(context.args)
-    if not text:
-        await update.message.reply_text("Usage: /translate [nội dung cần dịch]")
-        return
-    
-    prompt = f"Dịch đoạn văn sau sang ngôn ngữ còn lại (nếu là tiếng Việt thì dịch sang Anh, nếu là tiếng Anh thì dịch sang Việt). Chỉ trả về bản dịch, không giải thích:\n\n{text}"
-    response = await call_groq(user_id, prompt, use_history=False)
-    await update.message.reply_text(f"🌐 *Bản dịch:*\n\n{response}", parse_mode="Markdown")
-
-async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = " ".join(context.args)
-    if not text:
-        await update.message.reply_text("Usage: /summarize [nội dung cần tóm tắt]")
-        return
-    
-    prompt = f"Tóm tắt đoạn văn sau một cách súc tích, giữ lại các ý chính quan trọng:\n\n{text}"
-    response = await call_groq(user_id, prompt, use_history=False)
-    await update.message.reply_text(f"📄 *Tóm tắt:*\n\n{response}", parse_mode="Markdown")
-
-async def call_groq(user_id, user_message, use_history=True):
-    """Call Groq API (Llama 3.3 70B)"""
+async def call_groq(user_id: int, user_message: str, use_history: bool = True) -> Optional[str]:
     try:
         if use_history:
-            add_message(user_id, "user", user_message)
-            messages = get_history(user_id)
+            add_to_history(user_id, "user", user_message)
+            messages = get_user_history(user_id)
         else:
             messages = [{"role": "user", "content": user_message}]
 
         response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-70b-versatile",
             messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages,
-            max_tokens=2048,
-            temperature=0.7,
+            max_tokens=1024,
+            temperature=0.7
         )
-        
+
         reply = response.choices[0].message.content
-        
+
         if use_history:
-            add_message(user_id, "assistant", reply)
-        
+            add_to_history(user_id, "assistant", reply)
+
         return reply
+
     except Exception as e:
-        logger.error(f"Groq error: {e}")
-        return f"❌ Lỗi: {str(e)}"
+        logger.error(f"Groq call failed: {e}")
+        return f"Error: {str(e)}"
+
+# ============================================================================
+# HANDLERS
+# ============================================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Hi Ezward! I'm your AI assistant.\n\n"
+        "I can help with:\n"
+        "• Work tasks (AIQuinta/Anduin)\n"
+        "• Translation (EN ↔ VN)\n"
+        "• Document summarization\n\n"
+        "Commands:\n"
+        "/translate [text]\n"
+        "/summarize [text]\n"
+        "/clear\n\n"
+        "Or just chat! 💬"
+    )
+
+async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_conversations[user_id] = []
+    await update.message.reply_text("Chat history cleared")
+
+async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if not context.args:
+        await update.message.reply_text("Usage: /translate [text]")
+        return
+
+    text = " ".join(context.args)
+    prompt = f"Translate to the other language. Only return translation:\n\n{text}"
+    
+    await update.message.chat_action("typing")
+    response = await call_groq(user_id, prompt, use_history=False)
+    await update.message.reply_text(response if response else "Error")
+
+async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if not context.args:
+        await update.message.reply_text("Usage: /summarize [text]")
+        return
+
+    text = " ".join(context.args)
+    prompt = f"Summarize concisely:\n\n{text}"
+    
+    await update.message.chat_action("typing")
+    response = await call_groq(user_id, prompt, use_history=False)
+    await update.message.reply_text(response if response else "Error")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_message = update.message.text
     
-    # Gửi "typing..."
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    await update.message.chat_action("typing")
+    response = await call_groq(user_id, user_message, use_history=True)
     
-    reply = await call_groq(user_id, user_message)
-    
-    # Telegram giới hạn 4096 ký tự
-    if len(reply) > 4096:
-        for i in range(0, len(reply), 4096):
-            await update.message.reply_text(reply[i:i+4096])
-    else:
-        await update.message.reply_text(reply)
+    if response:
+        if len(response) > 4096:
+            for i in range(0, len(response), 4096):
+                await update.message.reply_text(response[i:i+4096])
+        else:
+            await update.message.reply_text(response)
+
+# ============================================================================
+# MAIN
+# ============================================================================
 
 def main():
+    logger.info("Starting bot...")
+    
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
@@ -133,8 +195,8 @@ def main():
     app.add_handler(CommandHandler("summarize", summarize))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    logger.info("Bot started! (Groq only)")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("Bot running...")
+    app.run_polling(allowed_updates=['message'])
 
 if __name__ == "__main__":
     main()
