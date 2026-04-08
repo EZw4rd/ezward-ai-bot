@@ -151,20 +151,32 @@ async def call_gemini(user_id, user_message, use_history=True):
         if use_history:
             add_message(user_id, "user", user_message)
             messages = get_history(user_id)
-            # Convert to Gemini format
-            chat = gemini_model.start_chat(history=[
-                {"role": "model" if m["role"] == "assistant" else "user", 
-                 "parts": [{"text": m["content"]}]}
-                for m in messages[:-1]  # Exclude the last user message we just added
-            ])
+            
+            # Build conversation history for Gemini
+            history = []
+            for msg in messages[:-1]:  # Exclude last message (we'll send it separately)
+                history.append({
+                    "role": "model" if msg["role"] == "assistant" else "user",
+                    "parts": [msg["content"]]
+                })
+            
+            # Start chat with history
+            chat = gemini_model.start_chat(history=history)
             response = chat.send_message(
-                f"{SYSTEM_PROMPT}\n\nUser: {user_message}",
-                generation_config={"max_output_tokens": 2048, "temperature": 0.7}
+                user_message,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=2048,
+                    temperature=0.7
+                )
             )
         else:
+            # Single message without history
             response = gemini_model.generate_content(
-                f"{SYSTEM_PROMPT}\n\nUser: {user_message}",
-                generation_config={"max_output_tokens": 2048, "temperature": 0.7}
+                user_message,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=2048,
+                    temperature=0.7
+                )
             )
         
         reply = response.text
